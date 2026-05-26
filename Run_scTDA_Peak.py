@@ -18,8 +18,9 @@ print("Parsing command line arguments", time.strftime("%a, %d %b %Y %H:%M:%S", t
 COUNT_PATH = sys.argv[1]
 OUTDIR = sys.argv[2]
 CELLTYPE = sys.argv[3]
+APPROACH = sys.argv[4]
 
-names = ["Script", "COUNT_PATH","OUTDIR","CELLTYPE"]
+names = ["Script", "COUNT_PATH","OUTDIR","CELLTYPE", "APPROACH"]
 for n, arg in zip(names, sys.argv):
 	print(n, arg, flush=True)
 
@@ -73,6 +74,7 @@ for H in [0,1,2]:
         perturbation="zero",
         recompute_mode="local",
         max_features=50,
+        matching_mode=APPROACH,
         verbose=True
     )
 
