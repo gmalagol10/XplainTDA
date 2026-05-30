@@ -1,9 +1,7 @@
-import os
+import os, sys
 import scanpy as sc
-import scTDA
-import Global_X_scTDA
+import scTDA, Global_X_scTDA
 from joblib import dump
-import sys
 
 print("Imports completed", flush=True)
 

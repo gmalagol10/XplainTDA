@@ -1,7 +1,6 @@
-import os
+import os, time
 import numpy as np
 import pandas as pd
-import time
 
 from joblib import Parallel, delayed
 from scipy.sparse import issparse
