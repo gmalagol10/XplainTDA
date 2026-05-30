@@ -402,8 +402,8 @@ class scTDA:
         embedding
     ):
         """
-        Recompute persistent homology from
-        an embedding.
+        Recompute persistent homology and
+        localized features from an embedding.
         """
 
         neigh_ind, neigh_dist = (
@@ -414,17 +414,24 @@ class scTDA:
             )
         )
 
-        st, _ = build_simplex_tree(
+        st, edge_list = build_simplex_tree(
             neigh_ind,
             neigh_dist,
             maxdim=self.maxdim
         )
 
-        return simplex_tree_to_diagrams(
+        dgms = simplex_tree_to_diagrams(
             st,
             maxdim=self.maxdim
         )
 
+        features = localize_features(
+            dgms,
+            edge_list,
+            maxdim=self.maxdim
+        )
+
+        return dgms, features
     # =====================================================
     # Plot persistence
     # =====================================================

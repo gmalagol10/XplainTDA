@@ -17,10 +17,8 @@ print("Parsing command line arguments", flush=True)
 COUNT_PATH = sys.argv[1]
 OUTDIR = sys.argv[2]
 CELLTYPE = sys.argv[3]
-APPROACH = sys.argv[4]
-OUTDIR = f"{OUTDIR}/{APPROACH}"
 
-names = ["Script", "COUNT_PATH","OUTDIR","CELLTYPE", "APPROACH"]
+names = ["Script", "COUNT_PATH","OUTDIR","CELLTYPE"]
 for n, arg in zip(names, sys.argv):
 	print(n, arg, flush=True)
 
@@ -84,7 +82,6 @@ for H in [0,1,2]:
         recompute_mode="local",
         local_radius=2,
         n_random=20,
-        matching_mode=APPROACH,
         verbose=True
     )
 

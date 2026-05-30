@@ -28,6 +28,8 @@ class X_scTDA:
         n_random=20,
         top_frac=0.10,
         max_features=50,
+        matching_mode="max_persistence", #match_cells
+        jaccard_threshold=0.3,
         verbose=True
     ):
 
@@ -36,18 +38,14 @@ class X_scTDA:
         self.top_frac = top_frac
         self.max_features = max_features
         self.X = adata.X
-
         self.target_dim = target_dim
-
         self.perturbation = perturbation
-
         self.recompute_mode = recompute_mode
-
         self.local_radius = local_radius
-
         self.n_random = n_random
-
         self.verbose = verbose
+        self.matching_mode = matching_mode
+        self.jaccard_threshold = jaccard_threshold
 
         # -------------------------------------------------
         # PCA loadings
@@ -57,9 +55,7 @@ class X_scTDA:
         # -------------------------------------------------
         # Cache baseline persistence
         # -------------------------------------------------
-        self.P0 = self.tda.max_persistence(
-            self.tda.dgms[self.target_dim]
-        )
+        self.P0 = self.tda.max_persistence(self.tda.dgms[self.target_dim])
 
         # -------------------------------------------------
         # Marker genes
@@ -81,19 +77,29 @@ class X_scTDA:
         )
 
     # =====================================================
+    # Jaccard similarity
+    # =====================================================
+    @staticmethod
+    def jaccard(a, b):
+
+        a = set(a)
+        b = set(b)
+
+        if len(a | b) == 0:
+            return 0.0
+
+        return len(a & b) / len(a | b)
+
+
+    # =====================================================
     # Embedding perturbation
     # =====================================================
-    def perturb_embedding(
-        self,
-        gene_idx,
-        cell_idx
-    ):
+    def perturb_embedding(self, gene_idx, cell_idx):
         """
         Perturb one gene directly in embedding space.
         """
     
         Zp = self.tda.embedding.copy()
-    
         w = self.W[gene_idx].astype(np.float32)
     
         # ---------------------------------------------
@@ -102,11 +108,8 @@ class X_scTDA:
         vals = self.X[cell_idx, gene_idx]
     
         if issparse(vals):
-    
             vals = vals.toarray().ravel()
-    
         else:
-    
             vals = np.asarray(vals).ravel()
     
         vals = vals.astype(np.float32)
@@ -115,36 +118,64 @@ class X_scTDA:
         # Perturbation
         # ---------------------------------------------
         if self.perturbation == "zero":
-    
             delta = -vals
-    
         elif self.perturbation == "permute":
     
             perm = vals.copy()
-    
             np.random.shuffle(perm)
-    
             delta = perm - vals
     
         else:
     
-            raise ValueError(
-                "perturbation must be "
-                "'zero' or 'permute'"
-            )
+            raise ValueError("perturbation must be 'zero' or 'permute'")
     
         delta = delta.astype(np.float32)
-    
+
         # ---------------------------------------------
         # Rank-1 embedding update
         # ---------------------------------------------
-        Zp[cell_idx] += (
-            delta[:, None]
-            *
-            w[None, :]
-        )
-    
+        Zp[cell_idx] += delta[:, None]*w[None, :])
+        
         return Zp
+
+    # =====================================================
+    # Match perturbed feature
+    # =====================================================
+    def match_feature(
+        self,
+        original_cells,
+        perturbed_features
+    ):
+        """
+        Match perturbed feature using
+        Jaccard overlap between cells.
+        """
+
+        best_persistence = 0.0
+
+        best_overlap = 0.0
+
+        for feat in perturbed_features:
+
+            overlap = self.jaccard(
+                original_cells,
+                feat["cells"]
+            )
+
+            if overlap > best_overlap:
+
+                best_overlap = overlap
+
+                best_persistence = (
+                    feat["persistence"]
+                )
+
+        if best_overlap < self.jaccard_threshold:
+
+            return 0.0
+
+        return best_persistence
+
 
     # =====================================================
     # Local recomputation
@@ -197,12 +228,16 @@ class X_scTDA:
     def gene_importance(
         self,
         gene_idx,
-        cell_idx
+        feature
     ):
         """
         Topological importance score
         for one gene.
         """
+
+        cell_idx = feature["cells"]
+
+        P0 = feature["persistence"]
 
         Zp = self.perturb_embedding(
             gene_idx,
@@ -214,15 +249,17 @@ class X_scTDA:
         # -------------------------------------------------
         if self.recompute_mode == "exact":
 
-            dgms_p = self.tda.recompute_ph(
-                Zp
+            dgms_p, features_p = (
+                self.tda.recompute_ph(Zp)
             )
 
         elif self.recompute_mode == "local":
 
-            dgms_p = self.local_recompute_ph(
-                Zp,
-                cell_idx
+            dgms_p, features_p = (
+                self.local_recompute_ph(
+                    Zp,
+                    cell_idx
+                )
             )
 
         else:
@@ -232,14 +269,36 @@ class X_scTDA:
                 "'exact' or 'local'"
             )
 
-        P1 = self.tda.max_persistence(
-            dgms_p[self.target_dim]
-        )
+        # -------------------------------------------------
+        # Persistence selection
+        # -------------------------------------------------
+        if self.matching_mode == "max_persistence":
+
+            P1 = self.tda.max_persistence(
+                dgms_p[self.target_dim]
+            )
+
+        elif self.matching_mode == "match_cells":
+
+            P1 = self.match_feature(
+                original_cells=cell_idx,
+                perturbed_features=(
+                    features_p[self.target_dim]
+                )
+            )
+
+        else:
+
+            raise ValueError(
+                "matching_mode must be "
+                "'max_persistence' or "
+                "'jaccard'"
+            )
 
         return (
-            self.P0 - P1
+            P0 - P1
         ) / (
-            self.P0 + 1e-12
+            P0 + 1e-12
         )
 
     # =====================================================
@@ -266,10 +325,7 @@ class X_scTDA:
 
         for i, g in enumerate(genes):
 
-            scores[i] = self.gene_importance(
-                gene_idx=g,
-                cell_idx=cell_idx
-            )
+            scores[i] = self.gene_importance(gene_idx=g, feature=feature)
         if self.verbose:
             print(f"Done feature {feature_id} | "f"{len(cell_idx)} cells", time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()), flush=True)
         return feature_id, scores
