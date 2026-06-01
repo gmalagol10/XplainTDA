@@ -3,8 +3,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import gudhi as gd
 
-from scipy.sparse import issparse
-from sklearn.decomposition import PCA, TruncatedSVD
+import Embedder
 from sklearn.neighbors import NearestNeighbors
 
 try:
@@ -17,249 +16,164 @@ except ImportError:
 # =========================================================
 # kNN graph construction
 # =========================================================
-def compute_neighbors(
-    X,
-    n_neighbors=15,
-    backend="exact"
-):
+def compute_neighbors(X, n_neighbors=15, backend="exact"):
     """
-    Compute nearest neighbors.
+    Compute k-nearest neighbors for an embedding.
 
     Parameters
     ----------
     X : np.ndarray
-        Low-dimensional embedding.
-
-    n_neighbors : int
-        Number of neighbors.
-
-    backend : str
-        Neighbor search backend.
-
-        "exact"
-            sklearn exact neighbors
-
-        "pynndescent"
-            approximate neighbors
+        Input embedding of shape (n_cells, n_features).
+    n_neighbors : int, default=15
+        Number of nearest neighbors to compute.
+    backend : {"exact", "pynndescent"}, default="exact"
+        Neighbor search method:
+        - "exact": exact search via sklearn.
+        - "pynndescent": approximate search via pynndescent.
 
     Returns
     -------
     neigh_ind : np.ndarray
-        Neighbor indices.
-
+        Indices of nearest neighbors.
     neigh_dist : np.ndarray
-        Neighbor distances.
+        Distances to nearest neighbors.
     """
-
+    # Exact kNN search using sklearn
     if backend == "exact":
+        neigh_dist, neigh_ind = NearestNeighbors(n_neighbors=n_neighbors, metric="euclidean").fit(X).kneighbors(X)
 
-        nn = NearestNeighbors(
-            n_neighbors=n_neighbors,
-            metric="euclidean"
-        )
-
-        nn.fit(X)
-
-        neigh_dist, neigh_ind = nn.kneighbors(X)
-
-        return neigh_ind, neigh_dist
-
-    if backend == "pynndescent":
-
+    # Approximate kNN search using pynndescent
+    elif backend == "pynndescent":
         if not HAS_PYNNDESCENT:
+            raise ImportError("pynndescent is not installed.")
+        neigh_ind, neigh_dist = NNDescent(X, n_neighbors=n_neighbors, metric="euclidean").neighbor_graph
 
-            raise ImportError(
-                "pynndescent is not installed."
-            )
+    else:
+        raise ValueError("backend must be 'exact' or 'pynndescent'")
 
-        index = NNDescent(
-            X,
-            n_neighbors=n_neighbors,
-            metric="euclidean"
-        )
-
-        neigh_ind, neigh_dist = index.neighbor_graph
-
-        return neigh_ind, neigh_dist
-
-    raise ValueError(
-        "backend must be "
-        "'exact' or 'pynndescent'"
-    )
+    return neigh_ind, neigh_dist
 
 
 # =========================================================
 # Build weighted clique complex
 # =========================================================
-def build_simplex_tree(
-    neigh_ind,
-    neigh_dist,
-    maxdim=2
-):
+def build_simplex_tree(neigh_ind, neigh_dist, maxdim=2):
     """
-    Build weighted clique complex.
+    Build a weighted clique complex from a kNN graph.
 
     Parameters
     ----------
     neigh_ind : np.ndarray
-        Neighbor indices.
-
+        Neighbor indices of shape (n_samples, k).
     neigh_dist : np.ndarray
-        Neighbor distances.
-
-    maxdim : int
-        Maximum homology dimension.
+        Corresponding neighbor distances.
+    maxdim : int, default=2
+        Maximum homology dimension to compute.
 
     Returns
     -------
     st : gudhi.SimplexTree
-
+        Expanded weighted clique complex.
     edge_list : np.ndarray
-        Array with:
-        [source, target, weight]
+        Array of shape (n_edges, 3) containing
+        [source, target, weight].
     """
-
     n = neigh_ind.shape[0]
-
     st = gd.SimplexTree()
 
-    # -----------------------------------------------------
-    # Insert vertices
-    # -----------------------------------------------------
+    # Insert all vertices
     for i in range(n):
-
         st.insert([i], filtration=0.0)
 
-    # -----------------------------------------------------
-    # Construct unique weighted edges
-    # -----------------------------------------------------
+    # Build unique undirected edges using the minimum observed distance
     edge_dict = {}
+    for i, (nbrs, dists) in enumerate(zip(neigh_ind, neigh_dist)):
+        for j, d in zip(nbrs, dists):
+            if i != j:
+                edge = tuple(sorted((i, j)))
+                edge_dict[edge] = min(d, edge_dict.get(edge, np.inf))
 
-    for i in range(n):
+    # Insert weighted edges and expand to a clique complex
+    for edge, d in edge_dict.items():
+        st.insert(edge, filtration=float(d))
 
-        for j, d in zip(
-            neigh_ind[i],
-            neigh_dist[i]
-        ):
-
-            if i == j:
-                continue
-
-            a, b = sorted((i, j))
-
-            key = (a, b)
-
-            edge_dict[key] = min(
-                d,
-                edge_dict.get(key, np.inf)
-            )
-
-    # -----------------------------------------------------
-    # Insert weighted edges
-    # -----------------------------------------------------
-    for (i, j), d in edge_dict.items():
-
-        st.insert(
-            [i, j],
-            filtration=float(d)
-        )
-
-    # -----------------------------------------------------
-    # Expand clique complex
-    # -----------------------------------------------------
     st.expansion(maxdim + 1)
 
-    edge_list = np.array([
-        [i, j, d]
-        for (i, j), d in edge_dict.items()
-    ])
-
+    edge_list = np.array([[i, j, d] for (i, j), d in edge_dict.items()])
     return st, edge_list
 
 
 # =========================================================
 # Persistence diagrams
 # =========================================================
-def simplex_tree_to_diagrams(
-    st,
-    maxdim=2
-):
+def simplex_tree_to_diagrams(st, maxdim=2):
     """
-    Compute persistence diagrams.
-    """
+    Compute persistence diagrams from a simplex tree.
 
+    Parameters
+    ----------
+    st : gudhi.SimplexTree
+        Input simplicial complex.
+    maxdim : int, default=2
+        Maximum homology dimension to return.
+
+    Returns
+    -------
+    list[np.ndarray]
+        Persistence intervals for dimensions 0, ..., maxdim.
+    """
+    # Compute persistent homology and extract diagrams by dimension
     st.compute_persistence()
-
-    return [
-        st.persistence_intervals_in_dimension(dim)
-        for dim in range(maxdim + 1)
-    ]
-
+    return [st.persistence_intervals_in_dimension(dim) for dim in range(maxdim + 1)]
 
 # =========================================================
 # Feature localization
 # =========================================================
-def localize_features(
-    dgms,
-    edge_list,
-    maxdim=2,
-    eps=1e-6
-):
+def localize_features(dgms, edge_list, maxdim=2, eps=1e-6):
     """
-    Approximate localization of PH features.
+    Approximate localization of persistent homology features.
 
-    Each feature is associated with the
-    largest connected component of edges
-    active between birth and death.
+    For each persistence interval, identify the largest connected
+    component formed by edges whose filtration values lie between
+    the feature's birth and death times.
+
+    Parameters
+    ----------
+    dgms : list[np.ndarray]
+        Persistence diagrams by homology dimension.
+    edge_list : np.ndarray
+        Edge array with columns [source, target, weight].
+    maxdim : int, default=2
+        Maximum homology dimension to process.
+    eps : float, default=1e-6
+        Numerical tolerance when comparing filtration values.
 
     Returns
     -------
-    features : dict
+    dict
+        Mapping homology dimension to a list of localized features.
     """
-
     features = {}
 
     for dim in range(maxdim + 1):
-
         features[dim] = []
 
-        for k, (birth, death) in enumerate(
-            dgms[dim]
-        ):
-
-            mask = (
-                (edge_list[:, 2] >= birth - eps)
-                &
-                (edge_list[:, 2] <= death + eps)
-            )
+        for k, (birth, death) in enumerate(dgms[dim]):
+            # Select edges active during the feature lifetime
+            mask = (birth - eps <= edge_list[:, 2]) & (edge_list[:, 2] <= death + eps)
 
             G = nx.Graph()
+            G.add_edges_from(edge_list[mask, :2].astype(int))
 
-            G.add_edges_from(
-                edge_list[mask][:, :2].astype(int)
-            )
-
-            cells = np.array([])
-
-            if G.number_of_nodes() > 0:
-
-                cells = np.array(sorted(
-                    max(
-                        nx.connected_components(G),
-                        key=len
-                    )
-                ))
-
+            # Largest connected component (if any)
+            cells = np.array(sorted(max(nx.connected_components(G), key=len))) if G.number_of_nodes() else np.array([])
+    
             features[dim].append({
-
                 "feature_id": k,
                 "birth": float(birth),
                 "death": float(death),
-                "persistence": float(
-                    death - birth
-                ),
-                "cells": cells
-            })
+                "persistence": float(death - birth),
+                "cells": cells})
 
     return features
 
@@ -274,7 +188,7 @@ class scTDA:
     Pipeline
     --------
     Count matrix
-        -> PCA / TruncatedSVD
+        -> Embedding
         -> kNN graph
         -> weighted clique complex
         -> persistent homology
@@ -284,93 +198,91 @@ class scTDA:
         self,
         adata,
         layer="X",
-        n_pcs=30,
-        n_neighbors=15,
+        embedder="PCA",
+        n_components=None,
+        n_neighbors=30,
         maxdim=2,
         neighbor_backend="exact",
-        dtype=np.float32
+        dtype=np.float32,
     ):
+        """
+        Compute persistent homology on single-cell data.
+
+        Parameters
+        ----------
+        adata : AnnData
+            Input AnnData object.
+        layer : str, default="X"
+            Data matrix to use.
+        embedder : str, default="PCA"
+            Registered embedding method (e.g. "PCA", "GRAE").
+        n_components : int, optional
+            Latent dimensionality. If None, uses round(n_genes^(1/3)).
+        n_neighbors : int, default=15
+            Number of neighbors in the kNN graph.
+        maxdim : int, default=2
+            Maximum homology dimension.
+        neighbor_backend : {"exact", "pynndescent"}, default="exact"
+            kNN search backend.
+        dtype : np.dtype, default=np.float32
+            Embedding dtype.
+        """
 
         self.adata = adata
-        self.X = self.adata.X if layer == "X" else self.adata.layers[layer]
-        self.n_cells, self.n_genes = self.X.shape
+        self.X = adata.X if layer == "X" else adata.layers[layer]
 
-        self.n_pcs = n_pcs
+        self.n_cells, self.n_genes = self.X.shape
+        self.n_components = int(np.round(self.n_genes**(1/3))) if n_components is None else int(n_components)
+
         self.n_neighbors = n_neighbors
         self.maxdim = maxdim
         self.neighbor_backend = neighbor_backend
 
-        # -------------------------------------------------
-        # PCA embedding
-        # -------------------------------------------------
-        if issparse(self.X):
+        # Instantiate requested embedding model
+        try:
+            self.embedder = Embedder.Embedder.registry[embedder.upper()](
+                n_components=self.n_components,
+                dtype=dtype)
+                
+        except KeyError:
+            raise ValueError(
+                f"Unknown embedder '{embedder}'. "
+                f"Available: {list(Embedder.Embedder.registry)}")
 
-            self.pca = TruncatedSVD(
-                n_components=n_pcs,
-                random_state=0
-            )
+        # Learn embedding once and project cells
+        self.embedding = self.embedder.fit_transform(self.X)
 
-            self.embedding = self.pca.fit_transform(self.X)
-
-        else:
-
-            self.X = np.asarray(
-                self.X,
-                dtype=dtype
-            )
-
-            self.pca = PCA(
-                n_components=n_pcs,
-                svd_solver="randomized",
-                random_state=0
-            )
-
-            self.embedding = self.pca.fit_transform(self.X)
-
-        self.embedding = np.asarray(
+        # Construct weighted kNN graph
+        self.neigh_ind, self.neigh_dist = compute_neighbors(
             self.embedding,
-            dtype=dtype
-        )
+            n_neighbors=self.n_neighbors,
+            backend=self.neighbor_backend)
 
-        # -------------------------------------------------
-        # kNN graph
-        # -------------------------------------------------
-        self.neigh_ind, self.neigh_dist = (
-            compute_neighbors(
-                self.embedding,
-                n_neighbors=self.n_neighbors,
-                backend=neighbor_backend
-            )
-        )
+        # Build filtered clique complex
+        self.st, self.edge_list = build_simplex_tree(
+            self.neigh_ind,
+            self.neigh_dist,
+            maxdim=self.maxdim)
 
-        # -------------------------------------------------
-        # Weighted clique complex
-        # -------------------------------------------------
-        self.st, self.edge_list = (
-            build_simplex_tree(
-                self.neigh_ind,
-                self.neigh_dist,
-                maxdim=maxdim
-            )
-        )
-
-        # -------------------------------------------------
-        # Persistence diagrams
-        # -------------------------------------------------
-        self.dgms = simplex_tree_to_diagrams(
-            self.st,
-            maxdim=maxdim
-        )
-
-        # -------------------------------------------------
-        # Feature localization
-        # -------------------------------------------------
+        # Compute persistent homology and feature localization
+        self.dgms = simplex_tree_to_diagrams(self.st, maxdim=self.maxdim)
         self.features = localize_features(
             self.dgms,
             self.edge_list,
-            maxdim=maxdim
-        )
+            maxdim=self.maxdim)
+
         del self.st
+        
+    # =====================================================
+    # Embedding
+    # =====================================================        
+    def embed(self, X):
+        return self.embedder.transform(X)
+        
+    def recompute_ph_from_X(self, X):
+        embedding = self.embed(X)
+        return self.recompute_ph(embedding)
+
     # =====================================================
     # Persistence summary
     # =====================================================
