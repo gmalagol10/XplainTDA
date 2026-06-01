@@ -11,8 +11,8 @@ import manifold_tools
 import torch_modules
 import torch
 
-from .base_dataset import DEVICE, logger
-from .  import base_dataset
+from base_dataset import DEVICE, logger
+import base_dataset
 
 from pathlib import Path
 
@@ -44,7 +44,7 @@ class AE(base_model.BaseModel):
 				 patience=30,
 				 data_val=None,
 				 comet_exp=None,
-				 write_path=None):
+				 write_path="GRAE_temp_folder"):
 		"""Init. Arguments specify the architecture of the encoder. Decoder will use the reversed architecture.
 
 		Args:
