@@ -6,9 +6,9 @@ import torch.nn as nn
 import numpy as np
 import scipy
 
-from . import base_model
-from .  import manifold_tools
-from .  import torch_modules
+import base_model
+import manifold_tools
+import torch_modules
 import torch
 
 from .base_dataset import DEVICE, logger

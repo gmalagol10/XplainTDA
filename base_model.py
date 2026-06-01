@@ -6,7 +6,7 @@ import torch
 import matplotlib
 import numpy as np
 from sklearn.metrics import mean_squared_error
-from .  import base_dataset
+import base_dataset
 
 SEED = 42
 from .base_dataset import DEVICE
