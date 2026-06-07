@@ -5,6 +5,7 @@ import gudhi as gd
 
 import Embedder
 from sklearn.neighbors import NearestNeighbors
+from sklearn.metrics import normalized_mutual_info_score
 
 try:
     from pynndescent import NNDescent
@@ -16,7 +17,7 @@ except ImportError:
 # =========================================================
 # kNN graph construction
 # =========================================================
-def compute_neighbors(X, n_neighbors=15, backend="exact"):
+def compute_neighbors(X, n_neighbors=15, backend="exact", metric="euclidean"):
     """
     Compute k-nearest neighbors for an embedding.
 
@@ -30,6 +31,9 @@ def compute_neighbors(X, n_neighbors=15, backend="exact"):
         Neighbor search method:
         - "exact": exact search via sklearn.
         - "pynndescent": approximate search via pynndescent.
+    metric: str
+        "euclidean" or "cknn"
+        if "cknn" the distances of the neighborhood graph are scaled using the last nearest neighbor.
 
     Returns
     -------
@@ -41,6 +45,12 @@ def compute_neighbors(X, n_neighbors=15, backend="exact"):
     # Exact kNN search using sklearn
     if backend == "exact":
         neigh_dist, neigh_ind = NearestNeighbors(n_neighbors=n_neighbors, metric="euclidean").fit(X).kneighbors(X)
+
+        if metric == "cknn": #Returns scaled distances
+            rho = neigh_dist[:, -1]
+            scale = np.sqrt( rho[:, None] * rho[neigh_ind] )
+
+            neigh_dist = neigh_dist / scale
 
     # Approximate kNN search using pynndescent
     elif backend == "pynndescent":
@@ -178,6 +188,66 @@ def localize_features(dgms, edge_list, maxdim=2, eps=1e-6):
     return features
 
 
+def get_filtration_values(neigh_dist, n_bins=100):
+    vals = np.asarray(neigh_dist).ravel()
+    vals = vals[vals > 0]
+
+    vals_sorted = np.sort(vals)
+    bins = np.array_split(vals_sorted, n_bins)
+
+    reps = []
+    for b in bins:
+        if len(b) == 0:
+            continue
+        center = np.median(b)
+        reps.append(b[np.argmin(np.abs(b - center))])
+
+    return np.array(reps)
+
+
+def cc_at_threshold(edge_list, n_cells, value):
+    """
+    Compute connected components at a given filtration threshold.
+
+    Parameters
+    ----------
+    edge_list : np.ndarray
+        Array of shape (n_edges, 3): [src, dst, weight]
+    n_cells : int
+        Number of cells (nodes)
+    value : float
+        Filtration cutoff (keep edges with weight <= value)
+
+    Returns
+    -------
+    cc_type : np.ndarray
+        Cluster label per cell
+    nr_cc : int
+        Number of connected components
+    """
+
+    # 1. filter edges by threshold
+    mask = edge_list[:, 2] <= value
+    filtered_edges = edge_list[mask, :2].astype(int)
+
+    # 2. build graph
+    G = nx.Graph()
+    G.add_nodes_from(range(n_cells))
+    G.add_edges_from(filtered_edges)
+
+    # 3. connected components
+    components = list(nx.connected_components(G))
+
+    # 4. assign labels
+    cc_type = np.empty(n_cells, dtype=int)
+
+    for cc_id, comp in enumerate(components):
+        for node in comp:
+            cc_type[node] = cc_id
+
+    nr_cc = len(components)
+
+    return cc_type, nr_cc
 # =========================================================
 # Main topology class
 # =========================================================
@@ -203,6 +273,7 @@ class scTDA:
         n_neighbors=30,
         maxdim=2,
         neighbor_backend="exact",
+        neighbor_metric="euclidean",
         dtype=np.float32,
     ):
         """
@@ -224,6 +295,8 @@ class scTDA:
             Maximum homology dimension.
         neighbor_backend : {"exact", "pynndescent"}, default="exact"
             kNN search backend.
+        neighbor_metric : {"euclidean", "cknn"}, default="eclidean"
+            "cknn" scales the neighbor graph according to local density
         dtype : np.dtype, default=np.float32
             Embedding dtype.
         """
@@ -237,6 +310,7 @@ class scTDA:
         self.n_neighbors = n_neighbors
         self.maxdim = maxdim
         self.neighbor_backend = neighbor_backend
+        self.neighbor_metric = neighbor_metric
 
         # Instantiate requested embedding model
         try:
@@ -256,7 +330,8 @@ class scTDA:
         self.neigh_ind, self.neigh_dist = compute_neighbors(
             self.embedding,
             n_neighbors=self.n_neighbors,
-            backend=self.neighbor_backend)
+            backend=self.neighbor_backend,
+            metric=self.neighbor_metric)
 
         # Build filtered clique complex
         self.st, self.edge_list = build_simplex_tree(
@@ -322,7 +397,8 @@ class scTDA:
             compute_neighbors(
                 embedding,
                 n_neighbors=self.n_neighbors,
-                backend=self.neighbor_backend
+                backend=self.neighbor_backend,
+                metric=self.neighbor_metric
             )
         )
 
@@ -344,6 +420,40 @@ class scTDA:
         )
 
         return dgms, features
+    
+    def get_annotation(
+            self,
+    ):
+        filtration_values = get_filtration_values(self.neigh_dist, nbins=100)
+        celltype = np.array(self.adata.obs["CellType"])
+
+        best_value = None
+        best_nmi = -np.inf
+        best_nr_cc = None
+        best_cc_type = None
+
+        for value in filtration_values:
+
+            cc_type, nr_cc = cc_at_threshold(
+                edge_list=self.edge_list,
+                n_cells=self.n_cells,
+                value=value
+            )
+
+            nmi = normalized_mutual_info_score(celltype, cc_type)
+
+            if nmi > best_nmi:
+                best_nmi = nmi
+                best_value = value
+                best_nr_cc = nr_cc
+                best_cc_type = cc_type
+
+        # ---- STORE RESULT IN ANNData ----
+        self.adata.obs["cc_id"] = best_cc_type
+        print(f"Found best cc annotation at filtration value {best_value} with nmi score {best_nmi} with {best_nr_cc} connected components")
+
+
+
     # =====================================================
     # Plot persistence
     # =====================================================
