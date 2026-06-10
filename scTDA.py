@@ -188,12 +188,12 @@ def localize_features(dgms, edge_list, maxdim=2, eps=1e-6):
     return features
 
 
-def get_filtration_values(neigh_dist, n_bins=100):
+def get_filtration_values(neigh_dist, nbins=100):
     vals = np.asarray(neigh_dist).ravel()
     vals = vals[vals > 0]
 
     vals_sorted = np.sort(vals)
-    bins = np.array_split(vals_sorted, n_bins)
+    bins = np.array_split(vals_sorted, nbins)
 
     reps = []
     for b in bins:
