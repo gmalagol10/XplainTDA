@@ -1,0 +1,11 @@
+# Ignore everything, including folders
+*
+.*
+
+# Keep only these file types in the repo root
+!*.py
+!*.ipynb
+!*.sh
+
+# Keep this file
+!.gitignore
