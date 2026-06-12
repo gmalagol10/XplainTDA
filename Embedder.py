@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-
+from pathlib import Path
 from scipy import sparse
 from sklearn.decomposition import PCA, TruncatedSVD
 
@@ -103,56 +103,110 @@ class GRAEEmbedder(Embedder):
         epochs=d.DEFAULT_GRAE_EPOCHS,
         patience=d.DEFAULT_GRAE_PATIENCE,
         dtype=d.DEFAULT_DTYPE,
+        stratify_labels=None,
         **grae_kwargs,
     ):
         super().__init__(n_components, dtype)
 
         self.epochs = epochs
         self.patience = patience
+        self.stratify_labels = (
+            None
+            if stratify_labels is None
+            else np.asarray(stratify_labels)
+        )
         self.grae_kwargs = grae_kwargs
         self.model = None
 
-    def _dataset(self, X):
+    def _dataset(self, X, labels=None):
+        """
+        Convert an expression matrix into the dataset expected by GRAE.
 
+        Parameters
+        ----------
+        X : array-like or sparse matrix
+            Expression matrix with cells in rows.
+        labels : array-like, optional
+            Labels used for stratified train-validation splitting. If None,
+            all cells receive the same dummy label.
+
+        Returns
+        -------
+        BaseDataset
+            Dataset used by the GRAE model.
+        """
         X = sparse.csr_matrix(X, dtype=np.float32).toarray()
-        y = np.ones(X.shape[0])
+
+        if labels is None:
+            labels = np.zeros(X.shape[0], dtype=int)
+        else:
+            labels = np.asarray(labels)
+
+            if len(labels) != X.shape[0]:
+                raise ValueError(
+                    f"Received {len(labels)} stratification labels for "
+                    f"{X.shape[0]} cells."
+                )
 
         return BaseDataset(
             X,
-            y=y,
+            y=np.ones(X.shape[0]),
             split="none",
             split_ratio=1,
             random_state=42,
-            labels=y
+            labels=labels,
         )
 
     def fit(self, X):
+        """
+        Fit GRAE using an optionally stratified validation split.
 
-        ds = self._dataset(X)
+        Parameters
+        ----------
+        X : array-like or sparse matrix
+            Expression matrix with cells in rows.
+
+        Returns
+        -------
+        GRAEEmbedder
+            Fitted embedder.
+        """
+        ds = self._dataset(X, labels=self.stratify_labels)
         train_ds, val_ds, _ = ds.validation_split(ratio=0.15)
-        
+
         self.model = GRAE(
             epochs=self.epochs,
             patience=self.patience,
             latent_dim=self.n_components,
             data_val=val_ds,
-            **self.grae_kwargs)
+            **self.grae_kwargs,
+        )
 
         self.model.fit(train_ds)
 
-    def transform(self, X):
+        return self
 
+    def transform(self, X):
+        """
+        Embed new observations using the fitted GRAE model.
+
+        Stratification labels are not needed during transformation.
+        """
         return np.asarray(
             self.model.transform(self._dataset(X)),
-            dtype=self.dtype)
+            dtype=self.dtype,
+        )
             
     def _config(self):
-        """Return constructor arguments needed to recreate this embedder."""
+        """
+        Return constructor arguments needed to recreate the embedder.
+        """
         return {
             "n_components": self.n_components,
             "epochs": self.epochs,
             "patience": self.patience,
             "dtype": self.dtype,
+            "stratify_labels": self.stratify_labels,
             "grae_kwargs": self.grae_kwargs,
         }
 
@@ -197,6 +251,7 @@ class GRAEEmbedder(Embedder):
             epochs=config["epochs"],
             patience=config["patience"],
             dtype=config["dtype"],
+            stratify_labels=config.get("stratify_labels"),
             **config.get("grae_kwargs", {}),
         )
 
@@ -213,3 +268,34 @@ class GRAEEmbedder(Embedder):
             obj.model.fitted = True
 
         return obj
+        
+        
+        
+        
+def fit_GRAE(adata, name="myGRAE", n_components=None, layer="X", output_folder="temp_GRAE"):
+    # -----------------------------------------------------
+    # Prepare data and output paths
+    # -----------------------------------------------------
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    X = adata.X if layer == "X" else adata.layers[layer]
+
+    n_components = int(np.round(adata.shape[1] ** (1 / 3))) if n_components is None else n_components
+    # -----------------------------------------------------
+    # Fit GRAE and compute the embedding
+    # -----------------------------------------------------
+    embedder = GRAEEmbedder(n_components=n_components)
+
+    embedding = embedder.fit_transform(X)
+
+
+    # -----------------------------------------------------
+    # Save model and embedding
+    # -----------------------------------------------------
+    embedder.save(output_folder / f"{name}_embedder.joblib")
+    np.save(output_folder / f"{name}_embedding.npy", embedding)
+
+    print(f"Saved embedder to: {output_folder / f'{name}_embedder.joblib'}")
+    print(f"Saved embedding to: {output_folder / f'{name}_embedding.npy'}")
+    print(f"Embedding shape: {embedding.shape}")

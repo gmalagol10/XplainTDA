@@ -313,6 +313,7 @@ class XplainTDA:
         dtype=d.DEFAULT_DTYPE,
         fitted_embedder=None,
         embedder_kwargs=None,
+        embedding_key=None,
     ):
         """
         Initialize an unfitted XplainTDA object.
@@ -354,6 +355,7 @@ class XplainTDA:
         self.dtype = dtype
         self.embedder = fitted_embedder
         self.embedder_kwargs = embedder_kwargs or {}
+        self.embedding_key = embedding_key
 
         self.X = None
         self.n_cells = None
@@ -370,45 +372,126 @@ class XplainTDA:
     # =====================================================
     def fit(self, adata=None, embedding=None):
         """
-        Run embedding, kNN graph construction, PH, and feature localization.
+        Run embedding, kNN construction, persistent homology, and localization.
 
         Parameters
         ----------
         adata : AnnData, optional
             AnnData object. If provided, replaces ``self.adata``.
         embedding : np.ndarray, optional
-            Precomputed embedding. If provided, no embedder is fitted or used.
+            Explicit precomputed embedding. This takes precedence over
+            ``self.embedding_key``.
 
         Returns
         -------
-        self : XplainTDA
+        XplainTDA
             Fitted object.
         """
         if adata is not None:
             self.adata = adata
 
         if self.adata is None and embedding is None:
-            raise ValueError("Provide `adata` or `embedding`.")
+            raise ValueError("Provide `adata` or an explicit `embedding`.")
 
         if self.adata is not None:
-            self.X = self.adata.X if self.layer == "X" else self.adata.layers[self.layer]
+            self.X = (
+                self.adata.X
+                if self.layer == "X"
+                else self.adata.layers[self.layer]
+            )
+
             self.n_cells, self.n_genes = self.X.shape
+
             if self.n_cells < 1:
                 raise ValueError("adata must contain at least one cell.")
+
             if self.n_components is None:
                 self.n_components = int(np.round(self.n_genes ** (1 / 3)))
 
+        # Priority 1: explicit embedding passed to fit()
         if embedding is not None:
-            self.embedding = np.asarray(embedding, dtype=self.dtype)
-            if self.adata is not None and self.embedding.shape[0] != self.n_cells:
-                raise ValueError("embedding must have one row per cell in adata.")
-            self.n_cells = self.embedding.shape[0] if self.n_cells is None else self.n_cells
+            self.embedding = self._validate_embedding(embedding)
+
+        # Priority 2: embedding stored in adata.obsm
+        elif self.embedding_key is not None:
+            if self.adata is None:
+                raise ValueError(
+                    "`embedding_key` requires an AnnData object."
+                )
+
+            if self.embedding_key not in self.adata.obsm:
+                raise KeyError(
+                    f"Embedding {self.embedding_key!r} was not found in "
+                    f"`adata.obsm`. Available keys: "
+                    f"{list(self.adata.obsm.keys())}"
+                )
+
+            self.embedding = self._validate_embedding(
+                self.adata.obsm[self.embedding_key]
+            )
+
+        # Priority 3: fit/use the configured embedder
         else:
             self._fit_embedder()
-            self.embedding = self.embedder.transform(self.X)
+            self.embedding = self._validate_embedding(
+                self.embedder.transform(self.X)
+            )
 
+        self.n_components = self.embedding.shape[1]
         self._fit_ph()
+
         return self
+
+
+    def _validate_embedding(self, embedding):
+        """
+        Validate and standardize a precomputed cell embedding.
+
+        Parameters
+        ----------
+        embedding : array-like
+            Embedding with shape ``(n_cells, n_components)``.
+
+        Returns
+        -------
+        np.ndarray
+            Dense embedding converted to ``self.dtype``.
+
+        Raises
+        ------
+        ValueError
+            If the embedding is not two-dimensional, contains non-finite values,
+            or has a number of rows inconsistent with ``adata``.
+        """
+        embedding = np.asarray(embedding, dtype=self.dtype)
+
+        if embedding.ndim != 2:
+            raise ValueError(
+                "embedding must be a two-dimensional array with shape "
+                "(n_cells, n_components)."
+            )
+
+        if self.n_cells is not None and embedding.shape[0] != self.n_cells:
+            raise ValueError(
+                f"embedding has {embedding.shape[0]} rows, but adata has "
+                f"{self.n_cells} cells."
+            )
+
+        if embedding.shape[1] < 1:
+            raise ValueError(
+                "embedding must contain at least one component."
+            )
+
+        if not np.isfinite(embedding).all():
+            raise ValueError(
+                "embedding contains NaN or infinite values."
+            )
+
+        if self.n_cells is None:
+            self.n_cells = embedding.shape[0]
+
+        return embedding
+
 
     def _fit_embedder(self):
         """
@@ -576,6 +659,7 @@ class XplainTDA:
                 "ph_backend": self.ph_backend,
                 "dtype": self.dtype,
                 "embedder_kwargs": self.embedder_kwargs,
+                "embedding_key": self.embedding_key,
             },
             "adata": self.adata if save_adata else None,
             "n_cells": self.n_cells,
