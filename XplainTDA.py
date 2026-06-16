@@ -139,11 +139,9 @@ def compute_ph_from_neighbors(neigh_ind, neigh_dist, maxdim=d.DEFAULT_MAXDIM, ph
         raise ValueError(f"ph_backend must be one of {sorted(VALID_PH_BACKENDS)}")
 
     if ph_backend == "gudhi":
-        print("--------------I AM USING GUDHI--------------", flush=True)
         st, edge_list = build_simplex_tree(neigh_ind, neigh_dist, maxdim=maxdim)
         dgms = simplex_tree_to_diagrams(st, maxdim=maxdim)
     else:
-        print("--------------I AM USING RIEPSR--------------", flush=True)
         edge_list = neighbors_to_edge_list(neigh_ind, neigh_dist)
         D = edge_list_to_sparse_distance(edge_list, n=neigh_ind.shape[0])
         dgms = ripser_sparse_to_diagrams(D, maxdim=maxdim)
