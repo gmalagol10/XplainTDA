@@ -1,9 +1,11 @@
-import os, time, joblib
+import os, time, joblib, zlib
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from scipy.sparse import issparse
 import defaults as d
+from Embedder import GRAEEmbedder
 
 VALID_PERTURBATIONS = {"zero", "permute"}
 VALID_RECOMPUTE_MODES = {"exact", "local"}
@@ -147,6 +149,12 @@ def perturb_embedding(tda, X, gene_idx, cell_idx, perturbation="zero", rng=None)
         return Zp
 
     # Generic path: perturb X, then transform with the trained embedder.
+    if getattr(tda, "embedder", None) is None:
+        raise ValueError(
+            "A fitted nonlinear embedder is required. Attach the saved GRAE "
+            "model before running perturbation explanations."
+        )
+
     Xp = assign_gene_values(X, cell_idx, gene_idx, vals_p)
 
     return tda.embed(Xp)
@@ -187,6 +195,8 @@ class Local_XplainTDA:
     def __init__(
         self,
         tda,
+        grae_model_path=None,
+        embedding_key=None,
         target_dim=d.DEFAULT_TARGET_DIM,
         perturbation=d.DEFAULT_PERTURBATION,
         recompute_mode=d.DEFAULT_RECOMPUTE_MODE,
@@ -206,6 +216,14 @@ class Local_XplainTDA:
         tda : XplainTDA
             Fitted topology object containing X, embedding, kNN graph,
             persistence diagrams, and localized features.
+        grae_model_path : str or pathlib.Path, optional
+            Path to a model saved with ``GRAEEmbedder.save``. When supplied,
+            ``embedding_key`` must also exist in ``tda.adata.obsm``. The model
+            is loaded only when an equivalent fitted model is not already
+            attached to ``tda``.
+        embedding_key : str, optional
+            Key in ``tda.adata.obsm`` containing the original embedding paired
+            with ``grae_model_path``.
         target_dim : int, default=1
             Default homology dimension to explain.
         perturbation : {"zero", "permute"}, default="zero"
@@ -234,9 +252,25 @@ class Local_XplainTDA:
             matching_mode
         )
 
-        self.adata = tda.adata
         self.tda = tda
+        self.adata = tda.adata
+        if self.adata is None:
+            raise ValueError("`tda.adata` is required for gene perturbations.")
+
         self.X = tda.X
+        if self.X is None:
+            self.X = (
+                self.adata.X
+                if getattr(tda, "layer", "X") == "X"
+                else self.adata.layers[tda.layer]
+            )
+            self.tda.X = self.X
+
+        self.grae_model_path = None
+        self.embedding_key = embedding_key
+        if grae_model_path is not None or embedding_key is not None:
+            self._configure_grae_pair(grae_model_path, embedding_key)
+
         self.target_dim = target_dim
         self.perturbation = perturbation
         self.recompute_mode = recompute_mode
@@ -274,6 +308,94 @@ class Local_XplainTDA:
             raise ValueError(
                 f"matching_mode must be one of {sorted(VALID_MATCHING_MODES)}"
             )
+
+    @staticmethod
+    def _saved_input_dim(embedder):
+        """Best-effort extraction of a saved GRAE model's input dimension."""
+        shape = getattr(getattr(embedder, "model", None), "data_shape", None)
+        if shape is None:
+            return None
+        try:
+            values = np.atleast_1d(shape).astype(int)
+        except (TypeError, ValueError):
+            return None
+        return int(values[-1]) if len(values) else None
+
+    def _configure_grae_pair(self, grae_model_path, embedding_key):
+        """Validate a saved GRAE model and its paired stored embedding.
+
+        This method never trains a model. In stratified workflows, fallback
+        training must happen once on the full AnnData object before group PH is
+        constructed; ``StratifiedXplainTDA`` is responsible for that step.
+        """
+        if grae_model_path is None or embedding_key is None:
+            raise ValueError(
+                "`grae_model_path` and `embedding_key` must be provided together. "
+                "For stratified analysis, let StratifiedXplainTDA rebuild the "
+                "full-data pair when either artifact is unavailable."
+            )
+        if embedding_key not in self.adata.obsm:
+            raise KeyError(
+                f"Embedding {embedding_key!r} was not found in tda.adata.obsm. "
+                f"Available keys: {list(self.adata.obsm.keys())}"
+            )
+
+        stored = np.asarray(self.adata.obsm[embedding_key])
+        if stored.ndim != 2 or stored.shape != np.asarray(self.tda.embedding).shape:
+            raise ValueError(
+                f"adata.obsm[{embedding_key!r}] has shape {stored.shape}, but "
+                f"tda.embedding has shape {np.asarray(self.tda.embedding).shape}."
+            )
+
+        path = Path(grae_model_path).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"Saved GRAE embedder not found: {path}")
+
+        existing = getattr(self.tda, "embedder", None)
+        existing_path = getattr(self.tda, "grae_model_path", None)
+        reuse_existing = (
+            isinstance(existing, GRAEEmbedder)
+            and existing_path is not None
+            and Path(existing_path).expanduser().resolve() == path
+        )
+        embedder = existing if reuse_existing else GRAEEmbedder.load(path)
+
+        model = getattr(embedder, "model", None)
+        if model is None or getattr(model, "torch_module", None) is None:
+            raise ValueError(f"{path} does not contain a fitted GRAE model.")
+
+        latent_dim = int(np.asarray(self.tda.embedding).shape[1])
+        if int(embedder.n_components) != latent_dim:
+            raise ValueError(
+                "Saved GRAE latent dimension does not match tda.embedding: "
+                f"{embedder.n_components} != {latent_dim}."
+            )
+
+        input_dim = self._saved_input_dim(embedder)
+        if input_dim is not None and input_dim != int(self.X.shape[1]):
+            raise ValueError(
+                "Saved GRAE input dimension does not match tda.X: "
+                f"{input_dim} != {self.X.shape[1]}. Ensure identical features "
+                "and feature order."
+            )
+
+        self.tda.embedder = embedder
+        self.tda.embedder_name = "GRAE"
+        self.tda.n_components = embedder.n_components
+        self.tda.grae_model_path = str(path)
+        self.grae_model_path = str(path)
+        self.embedding_key = embedding_key
+
+    def _rng_for_perturbation(self, gene_idx, cell_idx):
+        """Return an independent RNG safe for feature-level threading."""
+        if self.random_state is None:
+            return np.random.default_rng()
+        cell_idx = np.asarray(cell_idx, dtype=np.int64)
+        checksum = zlib.crc32(cell_idx.tobytes())
+        seed = np.random.SeedSequence(
+            [int(self.random_state), int(gene_idx), int(checksum)]
+        )
+        return np.random.default_rng(seed)
 
     def _available_dims(self):
         """Return all homology dimensions available in the fitted TDA object."""
@@ -352,7 +474,9 @@ class Local_XplainTDA:
             self.recompute_mode,
             int(self.local_radius),
             self.matching_mode,
-            float(self.jaccard_threshold)
+            float(self.jaccard_threshold),
+            self.grae_model_path,
+            self.embedding_key,
         )
 
     # =====================================================
@@ -371,7 +495,7 @@ class Local_XplainTDA:
             gene_idx,
             cell_idx,
             self.perturbation,
-            self.rng
+            self._rng_for_perturbation(gene_idx, cell_idx),
         )
 
     # =====================================================
@@ -850,7 +974,7 @@ class Local_XplainTDA:
         joblib.dump(state, path, compress=compress)
 
     @classmethod
-    def load(cls, path, tda=None):
+    def load(cls, path, tda=None, grae_model_path=None, embedding_key=None):
         """
         Load a saved local explainer.
 
@@ -877,9 +1001,15 @@ class Local_XplainTDA:
                 "No TDA object available. Pass `tda=...` or save with `save_tda=True`."
             )
 
+        config = dict(state["config"])
+        if grae_model_path is not None:
+            config["grae_model_path"] = grae_model_path
+        if embedding_key is not None:
+            config["embedding_key"] = embedding_key
+
         obj = cls(
             tda=tda,
-            **state["config"]
+            **config,
         )
 
         obj.results = state.get("results", None)
@@ -908,4 +1038,7 @@ class Local_XplainTDA:
             "matching_mode": self.matching_mode,
             "jaccard_threshold": self.jaccard_threshold,
             "verbose": self.verbose,
-            "random_state": self.random_state}
+            "random_state": self.random_state,
+            "grae_model_path": self.grae_model_path,
+            "embedding_key": self.embedding_key,
+        }

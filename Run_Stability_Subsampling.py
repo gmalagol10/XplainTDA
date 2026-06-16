@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import argparse
 import time
 from contextlib import contextmanager
 from itertools import combinations
@@ -368,20 +369,72 @@ def save_bottleneck_heatmaps(df: pd.DataFrame, labels: list[str], outdir: Path) 
             matrix.loc[row.label_b, row.label_a] = row.distance
         matrix.to_csv(outdir / f"bottleneck_heatmap_H{dim}.csv")
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compute subsampling stability from one fixed full-data embedding, "
+            "using ordinary and quantile bottleneck distances."
+        )
+    )
+
+    parser.add_argument(
+        "input_h5ad",
+        type=Path,
+        help="Input AnnData .h5ad file.",
+    )
+    parser.add_argument(
+        "output_dir",
+        type=Path,
+        help="Directory where results will be written.",
+    )
+    parser.add_argument(
+        "--stratify-by",
+        default="CellType",
+        help="Column in adata.obs used for stratified sampling.",
+    )
+    parser.add_argument(
+        "--n-subsets",
+        type=int,
+        default=N_SUBSETS,
+        help=f"Number of independent subsets. Default: {N_SUBSETS}.",
+    )
+    parser.add_argument(
+        "--subset-frac",
+        type=float,
+        default=SUBSET_FRAC,
+        help=f"Fraction of cells sampled in each subset. Default: {SUBSET_FRAC}.",
+    )
+    parser.add_argument(
+        "--embedding-strategy",
+        choices=["GRAE", "PCA"],
+        default=EMBEDDER,
+        help=(
+            "Method used to fit the full-data embedding when no precomputed "
+            "embedding key is supplied."
+        ),
+    )
+    parser.add_argument(
+        "--embedding-key",
+        default=None,
+        help=(
+            "Optional key in adata.obsm containing a precomputed embedding, "
+            "for example X_GRAE or X_pca. When supplied, embedding fitting is skipped."
+        ),
+    )
+
+    return parser.parse_args()
+
 
 def main() -> None:
-    if len(sys.argv) < 3:
-        raise SystemExit(
-            "Usage: python Run_Stability_Subsampling_Quantile.py input.h5ad "
-            "output_dir [stratify_by] [n_subsets] [subset_frac] [embedding_key]"
-        )
+    args = parse_args()
 
-    adata_path = str(Path(sys.argv[1]).resolve())
-    outdir = Path(sys.argv[2]).resolve()
-    stratify_by = sys.argv[3] if len(sys.argv) > 3 else "CellType"
-    embedding_key = sys.argv[4] if len(sys.argv) > 4 else EMBEDDING_KEY
-    n_subsets = int(sys.argv[5]) if len(sys.argv) > 5 else N_SUBSETS
-    subset_frac = float(sys.argv[6]) if len(sys.argv) > 6 else SUBSET_FRAC
+    adata_path = str(args.input_h5ad.resolve())
+    outdir = args.output_dir.resolve()
+    stratify_by = args.stratify_by
+    n_subsets = args.n_subsets
+    subset_frac = args.subset_frac
+    embedding_strategy = args.embedding_strategy.upper()
+    embedding_key = args.embedding_key
 
     if n_subsets < 2:
         raise ValueError("n_subsets must be at least 2.")
@@ -390,13 +443,13 @@ def main() -> None:
     subsets_dir = outdir / "subsets"
     subsets_dir.mkdir(exist_ok=True)
 
-    print(f"[{now()}] Starting script", flush=True)
-    print("ADATA_PATH", adata_path, flush=True)
-    print("OUTDIR", outdir, flush=True)
-    print("stratify_by", stratify_by, flush=True)
-    print("n_subsets", n_subsets, flush=True)
-    print("subset_frac", subset_frac, flush=True)
-    print("EMBEDDING_KEY", embedding_key, flush=True)
+    print("=" * 70, flush=True)
+    print("RUN CONFIGURATION", flush=True)
+    print("=" * 70, flush=True)
+
+    for name, value in vars(args).items():
+        print(f"{name:25s}: {value}", flush=True)
+    print("=" * 70, flush=True)
 
     adata = ad.read_h5ad(adata_path)
     print(adata, flush=True)
