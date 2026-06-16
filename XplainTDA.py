@@ -52,7 +52,7 @@ def compute_neighbors(X, n_neighbors=d.DEFAULT_N_NEIGHBORS, backend=d.DEFAULT_NE
     n_neighbors = min(int(n_neighbors), X.shape[0])
 
     if backend == "exact":
-        nn = NearestNeighbors(n_neighbors=n_neighbors, metric="euclidean", n_jobs=-1)
+        nn = NearestNeighbors(n_neighbors=n_neighbors, metric="euclidean", n_jobs=1)
         neigh_dist, neigh_ind = nn.fit(X).kneighbors(X)
 
     elif backend == "pynndescent":
