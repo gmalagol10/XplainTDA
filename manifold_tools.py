@@ -6,7 +6,7 @@ import phate
 from sklearn.decomposition import PCA as SKPCA
 from sklearn.pipeline import make_pipeline
 import base_model
-import procrustes
+from procrustes import procrustes
 
 import logging
 logger = logging.getLogger(__name__)

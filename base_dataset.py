@@ -9,49 +9,12 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
+import defaults as d
 
 import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-def select_device(min_free_mem_mb: int = 8192) -> torch.device:
-    """
-    Select the best device at startup.
-    - Uses CUDA if available and has at least `min_free_mem_mb` free memory.
-    - Otherwise falls back to CPU.
-
-    Parameters
-    ----------
-    min_free_mem_mb : int
-        Minimum free memory (in MB) required to use CUDA.
-
-    Returns
-    -------
-    device : torch.device
-        The selected device.
-    """
-    if torch.cuda.is_available():
-        free_mem, total_mem = torch.cuda.mem_get_info()
-        free_mem_mb = free_mem // (1024 ** 2)
-
-        logger.info(f"CUDA available: {free_mem_mb} MB free / {total_mem // (1024 ** 2)} MB total")
-
-        if free_mem_mb >= min_free_mem_mb:
-            logger.info("✅ Using CUDA")
-            return torch.device("cuda")
-        else:
-            logger.info(f"⚠️ Not enough free CUDA memory ({free_mem_mb} MB). Falling back to CPU.")
-            return torch.device("cpu")
-
-    logger.info("❌ CUDA not available. Using CPU.")
-    return torch.device("cpu")
-
-
-# Example usage:
-DEVICE = select_device()  # Require at least 8GB free
-
-print(f"Module {__name__} has been imported","DEVICE -->", DEVICE, flush=True)
-FIT_DEFAULT = .85  # Default train/test split ratio
 SEED = 42  # Default seed for splitting
 
 DEFAULT_PATH = os.path.join(os.getcwd(), 'data')
@@ -101,7 +64,7 @@ class BaseDataset(Dataset):
 
 	All datasets should subclass BaseDataset, which contains built-in splitting utilities."""
 
-	def __init__(self, x, y=None, split="train", split_ratio=FIT_DEFAULT, random_state=SEED, labels=None):
+	def __init__(self, x, y=None, split="train", split_ratio=d.DEFAULT_FIT, random_state=SEED, labels=None):
 		"""Init.
 
 		Set the split parameter to 'train' or 'test' for the object to hold the desired split. split='none' will keep

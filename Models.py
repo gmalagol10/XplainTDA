@@ -9,19 +9,11 @@ import scipy
 import base_model
 import manifold_tools
 import torch_modules
-import torch
 
-from base_dataset import DEVICE, logger
+from base_dataset import logger
 import base_dataset
-
+import defaults as d
 from pathlib import Path
-
-# Hyperparameters defaults
-BATCH_SIZE = 128
-LR = .0001
-WEIGHT_DECAY = 0
-EPOCHS = 300
-HIDDEN_DIMS = {"hidden_dim" : 800, "hidden_dim_2" : 400, "hidden_dim_1" : 200}  # Default fully-connected dimensions
 
 class AE(base_model.BaseModel):
 	"""Vanilla Autoencoder model.
@@ -31,17 +23,17 @@ class AE(base_model.BaseModel):
 	"""
 
 	def __init__(self, *,
-				 lr=LR,
-				 epochs=EPOCHS,
-				 batch_size=BATCH_SIZE,
-				 weight_decay=WEIGHT_DECAY,
+				 lr=d.DEFAULT_LR,
+				 epochs=d.DEFAULT_GRAE_EPOCHS,
+				 batch_size=d.DEFAULT_BATCH_SIZE,
+				 weight_decay=d.DEFAULT_WEIGHT_DECAY,
 				 random_state=base_model.SEED,
 				 latent_dim=2,
-				 hidden_dims=HIDDEN_DIMS,
+				 hidden_dims=d.DEFAULT_HIDDEN_DIMS,
 				 conv_dims=[],
 				 conv_fc_dims=[],
 				 train_mask=None,
-				 patience=30,
+				 patience=d.DEFAULT_GRAE_PATIENCE,
 				 data_val=None,
 				 comet_exp=None,
 				 write_path="GRAE_temp_folder"):
@@ -117,7 +109,7 @@ class AE(base_model.BaseModel):
 		else:
 			raise Exception(f'Invalid channel number. X has {len(data_shape)}')
 
-		self.torch_module.to(base_model.DEVICE)
+		self.torch_module.to(d.DEVICE)
 
 	def fit(self, x):
 		"""Fit model to data.
@@ -196,10 +188,10 @@ class AE(base_model.BaseModel):
 
 		"""
 		data, _, idx = batch  # No need for labels. Training is unsupervised
-		data = data.to(base_model.DEVICE)
+		data = data.to(d.DEVICE)
 
 		x_hat, z = self.torch_module(data)  # Forward pass
-		self.compute_loss(data, x_hat.to(base_model.DEVICE), z.to(base_model.DEVICE), idx)
+		self.compute_loss(data, x_hat.to(d.DEVICE), z.to(d.DEVICE), idx)
 
 	def compute_loss(self, x, x_hat, z, idx):
 		"""Apply loss to update parameters following a forward pass.
@@ -239,7 +231,7 @@ class AE(base_model.BaseModel):
 
 		for batch in loader:
 			data, _, idx = batch  # No need for labels. Training is unsupervised
-			data = data.to(base_model.DEVICE)
+			data = data.to(d.DEVICE)
 
 			x_hat, z = self.torch_module(data)  # Forward pass
 			sum_loss += data.shape[0] * self.criterion(data, x_hat).item()
@@ -296,7 +288,7 @@ class AE(base_model.BaseModel):
 		"""
 		self.torch_module.eval()
 		loader = torch.utils.data.DataLoader(x, batch_size=self.batch_size, shuffle=False)
-		z = [self.torch_module.encoder(batch.to(base_model.DEVICE)).cpu().detach().numpy() for batch, _, _ in loader]
+		z = [self.torch_module.encoder(batch.to(d.DEVICE)).cpu().detach().numpy() for batch, _, _ in loader]
 		return np.concatenate(z)
 
 	def inverse_transform(self, x):
@@ -312,7 +304,7 @@ class AE(base_model.BaseModel):
 		x = base_dataset.FromNumpyDataset(x)
 		loader = torch.utils.data.DataLoader(x, batch_size=self.batch_size,
 											 shuffle=False)
-		x_hat = [self.torch_module.decoder(batch.to(base_model.DEVICE)).cpu().detach().numpy()
+		x_hat = [self.torch_module.decoder(batch.to(d.DEVICE)).cpu().detach().numpy()
 				 for batch in loader]
 
 		return np.concatenate(x_hat)
@@ -367,7 +359,7 @@ class GRAE(AE):
 		self.relax = relax
 		
 		if target_embedding is not None:
-			self.target_embedding = torch.from_numpy(scipy.stats.zscore(target_embedding)).float().to(base_model.DEVICE)  # To store the target embedding as computed by embedder
+			self.target_embedding = torch.from_numpy(scipy.stats.zscore(target_embedding)).float().to(d.DEVICE)  # To store the target embedding as computed by embedder
 		else:
 			self.target_embedding = None
 			self.embedder = embedder(random_state=self.random_state, n_components=self.latent_dim, **embedder_params)  # To compute target embedding.
@@ -389,7 +381,7 @@ class GRAE(AE):
 			logger.info('Fitting manifold learning method...')
 			emb = scipy.stats.zscore(self.embedder.fit_transform(x))  # Normalize embedding
 			emb = (emb - emb.min())/(emb.max()-emb.min())
-			self.target_embedding = torch.from_numpy(emb).float().to(base_model.DEVICE)
+			self.target_embedding = torch.from_numpy(emb).float().to(d.DEVICE)
 
 		logger.info('Fitting encoder & decoder...')
 		super().fit(x)
