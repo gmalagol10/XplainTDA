@@ -6,15 +6,13 @@ class CustomInstallCommand(install):
     def run(self):
         subprocess.check_call([
             'pip', 'install', 
-            'torch-scatter', 
-            'torch-sparse', 
             '--find-links', 
             'https://data.pyg.org/whl/torch-2.6.0+cpu.html'
         ])
         install.run(self)
 
 setup(
-    name="seagall",
+    name="xplaintda",
     version="0.1",
     packages=find_packages(),
     install_requires=[l.strip() for l in open('requirements.txt').readlines()],
