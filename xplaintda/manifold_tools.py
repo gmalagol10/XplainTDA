@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-import .base_model
+from . import base_model
 from .Utils import procrustes
 
 PROC_THRESHOLD = 20000

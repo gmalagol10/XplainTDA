@@ -7,13 +7,13 @@ import numpy as np
 import scipy
 from pathlib import Path
 
-import .base_model
-import .manifold_tools
-import .torch_modules
+from . import base_model
+from . import manifold_tools
+from . import torch_modules
 
 from .base_dataset import logger
-import . import base_dataset
-import . import defaults as d
+from . import base_dataset
+from . import defaults as d
 
 
 class AE(base_model.BaseModel):
