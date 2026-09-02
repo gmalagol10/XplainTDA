@@ -18,6 +18,8 @@ conda create -n my_env python=3.10.14
 
 conda activate my_env
 
+pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+
 pip install git+https://github.com/gmalagol10/xplaintda
 ```
 

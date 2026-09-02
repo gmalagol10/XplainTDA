@@ -1,15 +1,4 @@
 from setuptools import setup, find_packages
-from setuptools.command.install import install
-import subprocess
-
-class CustomInstallCommand(install):
-    def run(self):
-        subprocess.check_call([
-            'pip', 'install', 
-            '--find-links', 
-            'https://data.pyg.org/whl/torch-2.6.0+cpu.html'
-        ])
-        install.run(self)
 
 setup(
     name="xplaintda",
@@ -28,7 +17,4 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.6',
-    cmdclass={
-        'install': CustomInstallCommand,
-    },
 )
