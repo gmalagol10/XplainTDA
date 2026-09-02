@@ -1,0 +1,10 @@
+scipy
+pandas
+scikit-learn
+numpy==2.2.6
+scanpy==1.11.5
+torch==2.6.0
+torchvision==0.21.0
+phate
+ripser
+gudhi
