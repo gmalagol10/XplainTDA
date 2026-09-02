@@ -11,17 +11,11 @@ import joblib
 import numpy as np
 import pandas as pd
 
-try:
-    from . import Embedder
-    from . import defaults as d
-    from .XplainTDA_Explainer import Explainer
-    from .XplainTDA_PH import DEFAULT_PH_BACKEND, XplainTDA
-except ImportError:  # pragma: no cover - used by standalone scripts
-    import Embedder
-    import defaults as d
-    from XplainTDA_Explainer import Explainer
-    from XplainTDA_PH import DEFAULT_PH_BACKEND, XplainTDA
 
+from . import Embedder
+from . import defaults as d
+from .XplainTDA_Explainer import Explainer
+from .XplainTDA_PH import DEFAULT_PH_BACKEND, XplainTDA
 
 class StratifiedExplainer:
     """Run PH and gene explanations separately for groups in ``adata.obs``.

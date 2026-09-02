@@ -16,12 +16,9 @@ import numpy as np
 from scipy import sparse
 from sklearn.neighbors import NearestNeighbors
 
-try:  # Support both package imports and running modules from one directory.
-    from . import Embedder
-    from . import defaults as d
-except ImportError:  # pragma: no cover - used by standalone scripts
-    import Embedder
-    import defaults as d
+from . import Embedder
+from . import defaults as d
+
 
 try:
     import gudhi as gd

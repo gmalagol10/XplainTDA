@@ -12,8 +12,8 @@ import .manifold_tools
 import .torch_modules
 
 from .base_dataset import logger
-import .base_dataset
-import .defaults as d
+import . import base_dataset
+import . import defaults as d
 
 
 class AE(base_model.BaseModel):

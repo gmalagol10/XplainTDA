@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.metrics import mean_squared_error
 SEED = 42
 
-import .base_dataset
+from . import base_dataset
 from .defaults import DEVICE
 
 class BaseModel:

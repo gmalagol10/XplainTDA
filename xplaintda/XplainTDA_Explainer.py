@@ -19,11 +19,7 @@ from scipy.optimize import linear_sum_assignment
 from scipy.sparse import issparse
 from sklearn.metrics import pairwise_distances_chunked
 
-try:
-    from . import defaults as d
-except ImportError:  # pragma: no cover - used by standalone scripts
-    import defaults as d
-
+from . import defaults as d
 
 VALID_PERTURBATIONS = {"zero"}
 BOTTLENECK_QUANTILE = 0.95

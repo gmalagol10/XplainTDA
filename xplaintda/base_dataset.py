@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 SEED = 42  # Default seed for splitting
 DEFAULT_PATH = os.path.join(os.getcwd(), 'data')
 
-import .defaults as d
+from . import defaults as d
 
 class FromNumpyDataset(Dataset):
 	"""Torch Dataset Wrapper for x ndarray with no target."""
