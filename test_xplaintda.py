@@ -1,33 +1,40 @@
 import numpy as np
+import torch
 from anndata import AnnData
 
 from xplaintda.XplainTDA_PH import XplainTDA
 from xplaintda.XplainTDA_Explainer import Explainer
 
-# Small fake count matrix: 20 cells × 8 genes
+# Small fake count matrix: 30 cells × 10 genes
 rng = np.random.default_rng(42)
-X = rng.poisson(2, size=(20, 8)).astype(np.float32)
+X = rng.poisson(2, size=(30, 10)).astype(np.float32)
 
 adata = AnnData(X)
 adata.obs_names = [f"cell_{i}" for i in range(adata.n_obs)]
 adata.var_names = [f"gene_{i}" for i in range(adata.n_vars)]
 
 print("Count matrix:", adata.shape)
+print("PyTorch:", torch.__version__)
+print("CUDA available:", torch.cuda.is_available())
 
-# 1. Embedding + persistent homology
+# GRAE embedding + persistent homology
 tda = XplainTDA(
     adata,
-    embedder="PCA",
-    n_components=3,
+    embedder="GRAE",
+    n_components=2,
     n_neighbors=4,
     maxdim=1,
     ph_backend="ripser",
+    embedder_kwargs={
+        "epochs": 3,      # smoke test only
+        "patience": 2,
+    },
 ).fit()
 
 print("Embedding:", tda.embedding.shape)
 print("Persistence diagrams:", [d.shape for d in tda.dgms])
 
-# 2. Explain just one gene
+# Explain one gene
 result = Explainer(tda, verbose=False).explain(
     genes=["gene_0"],
     dims=[0, 1],
@@ -36,8 +43,10 @@ result = Explainer(tda, verbose=False).explain(
 
 print(result)
 
-assert tda.embedding.shape == (20, 3)
+assert tda.embedding.shape == (30, 2)
 assert len(tda.dgms) == 2
 assert len(result) == 2
+assert np.isfinite(tda.embedding).all()
+assert np.isfinite(result["score"]).all()
 
-print("\nXplainTDA smoke test PASSED")
+print("\nXplainTDA GRAE smoke test PASSED")

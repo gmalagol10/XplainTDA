@@ -26,8 +26,27 @@ pip install git+https://github.com/gmalagol10/xplaintda
 ## Usage
 
 ```python
-import xplaintda as xtda
+import scanpy as sc
+from xplaintda.XplainTDA_Stratified import StratifiedExplainer
 
+# Load a filtered single-cell count matrix
+adata = sc.read_h5ad("adata_path")
+
+# Fit a shared GRAE embedding and compute persistent homology
+# separately for each cell type
+xplainer = StratifiedExplainer(adata, groupby="you_label", maxdim=2, outdir="XplainTDA_results")
+
+# Perturb each gene and quantify its topological importance
+results = xplainer.explain(dims=[0, 1, 2], n_jobs=1)
+
+# Show the most important genes for one cell type and homology dimension
+scores = results[(results["group"] == "one_label") & (results["homology_dim"] == 1)].sort_values("score", ascending=False)
+
+# Plot ranked gene importance
+plt.scatter(range(len(scores)), scores["score"])
+plt.xlabel("Gene rank")
+plt.ylabel("Topological importance")
+plt.show()
 
 ```
 
