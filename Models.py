@@ -5,15 +5,16 @@ import torch
 import torch.nn as nn
 import numpy as np
 import scipy
-
-import base_model
-import manifold_tools
-import torch_modules
-
-from base_dataset import logger
-import base_dataset
-import defaults as d
 from pathlib import Path
+
+import .base_model
+import .manifold_tools
+import .torch_modules
+
+from .base_dataset import logger
+import .base_dataset
+import .defaults as d
+
 
 class AE(base_model.BaseModel):
 	"""Vanilla Autoencoder model.

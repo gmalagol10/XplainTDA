@@ -5,12 +5,12 @@ from pathlib import Path
 from scipy import sparse
 from sklearn.decomposition import PCA, TruncatedSVD
 
-from Models import GRAE
-from base_dataset import BaseDataset
-import defaults as d
-
 import joblib
 import torch
+
+from .Models import GRAE
+from .base_dataset import BaseDataset
+import .defaults as d
 
 class Embedder(ABC):
 

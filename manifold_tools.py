@@ -5,13 +5,12 @@ import numpy as np
 import phate
 from sklearn.decomposition import PCA as SKPCA
 from sklearn.pipeline import make_pipeline
-import base_model
-from Utils import procrustes
-
 import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+import .base_model
+from .Utils import procrustes
 
 PROC_THRESHOLD = 20000
 PROC_BATCH_SIZE = 5000

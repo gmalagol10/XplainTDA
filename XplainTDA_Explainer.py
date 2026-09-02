@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
 from scipy.sparse import issparse
+from sklearn.metrics import pairwise_distances_chunked
 
 try:
     from . import defaults as d
@@ -24,7 +25,7 @@ except ImportError:  # pragma: no cover - used by standalone scripts
     import defaults as d
 
 
-VALID_PERTURBATIONS = {"zero", "permute"}
+VALID_PERTURBATIONS = {"zero"}
 BOTTLENECK_QUANTILE = 0.95
 
 
@@ -216,6 +217,10 @@ class Explainer:
         self.verbose = bool(verbose)
         self.results: pd.DataFrame | None = None
 
+        self.diameter = max(float(np.max(block)) for block in pairwise_distances_chunked(self.tda.embedding, metric="euclidean"))
+        if not np.isfinite(self.diameter) or self.diameter <= 0:
+            raise ValueError("embedding diameter must be positive and finite")
+
     def _resolve_genes(
         self, genes: Iterable[str | int] | str | int | None
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -268,7 +273,7 @@ class Explainer:
                 dim,
                 quantile_bottleneck_distance(
                     self.tda.dgms[dim], perturbed_diagrams[dim], self.quantile
-                ),
+                ) / self.diameter,
             )
             for dim in dims
         ]

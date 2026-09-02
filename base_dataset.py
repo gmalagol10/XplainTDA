@@ -9,16 +9,14 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
-import defaults as d
 
 import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
 SEED = 42  # Default seed for splitting
-
 DEFAULT_PATH = os.path.join(os.getcwd(), 'data')
 
+import .defaults as d
 
 class FromNumpyDataset(Dataset):
 	"""Torch Dataset Wrapper for x ndarray with no target."""
