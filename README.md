@@ -37,7 +37,7 @@ adata = sc.read_h5ad("adata_path")
 xplainer = StratifiedExplainer(adata, groupby="you_label", maxdim=2, outdir="XplainTDA_results")
 
 # Perturb each gene and quantify its topological importance
-results = xplainer.explain(dims=[0, 1, 2], n_jobs=1)
+results = xplainer.explain(dims=[0, 1, 2])
 
 # Show the most important genes for one cell type and homology dimension
 scores = results[(results["group"] == "one_label") & (results["homology_dim"] == 1)].sort_values("score", ascending=False)
