@@ -4,7 +4,7 @@ Explaining topological structure of single-cell multi-omics data through perturb
 
 isabel Giray, Gabriele Malagoli, Katharina T. Schmidt, Maria Colomé-Tatché
 
-
+https://doi.org/10.64898/2026.10.14.759129
 
 ![alt text](https://github.com/gmalagol10/XplainTDA/blob/main/xplaintda/XplainTDA_Figure1.png?raw=true)
 
