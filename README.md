@@ -1,6 +1,6 @@
 # XplainTDA
 
-Explaining topological structure of single-cell multi-omics data through perturbation
+XplainTDA: Explaining the topological structure of single-cell multi-omics data through perturbation
 
 isabel Giray, Gabriele Malagoli, Katharina T. Schmidt, Maria Colomé-Tatché
 
